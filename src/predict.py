@@ -1,27 +1,31 @@
 import pickle
-from preprocess import clean_text
+import sys
+import os
 
-# Load model and vectorizer
+# Fix path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from src.preprocess import clean_text
+
+# Load model
 model = pickle.load(open("model/model.pkl", "rb"))
 vectorizer = pickle.load(open("model/vectorizer.pkl", "rb"))
 
 def predict_news(text):
-    # Clean input
     cleaned_text = clean_text(text)
-    
-    # Convert to vector
     vectorized_text = vectorizer.transform([cleaned_text])
-    
-    # Predict
+
     prediction = model.predict(vectorized_text)[0]
-    
-    # Return result
-    if prediction == 0:
-        return "Fake News ❌"
-    else:
-        return "Real News ✅"
-    
+    proba = model.predict_proba(vectorized_text)[0]
+
+    return prediction, proba
+
+# Run in terminal
 if __name__ == "__main__":
-    sample = input("Enter news text: ")
-    result = predict_news(sample)
-    print("Prediction:", result)
+    sample = input("Enter news article: ")
+    prediction, proba = predict_news(sample)
+
+    if prediction == 0:
+        print(f"Fake News ({proba[0]*100:.2f}%)")
+    else:
+        print(f"Real News ({proba[1]*100:.2f}%)")
