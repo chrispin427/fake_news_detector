@@ -3,4 +3,5 @@ __pycache__/
 *.pyc
 model/*.pkl
 .env
-
+data/fake.csv
+data/true.csv
