@@ -1,16 +1,54 @@
-from similarity_checker import calculate_similarity
-
-text1 = """
-The government announced a new education policy today.
-"""
-
-text2 = """
-Today the government introduced a new education policy.
-"""
-
-score = calculate_similarity(
-    text1,
-    text2
+from report_generator import (
+    generate_report,
+    generate_report_text
 )
 
-print("Similarity:", score)
+report = generate_report(
+    article_title="Europe Heatwave Kills Dozens",
+
+    verdict_result={
+        "verdict": "Likely Credible",
+        "score": 82
+    },
+
+    credibility_score=88,
+
+    source_info={
+        "domain": "bbc.com",
+        "label": "Trusted",
+        "score": 95
+    },
+
+    fact_result={
+        "verdict": "Supported"
+    },
+
+    timeline_result={
+        "is_old_news": False
+    },
+
+    sentiment_result={
+        "manipulation_risk": "Low"
+    },
+
+    virality_result={
+        "level": "High"
+    },
+
+    risk_result={
+        "risk_level": "Low"
+    },
+
+    source_comparison_result={
+        "agreement": 81
+    },
+
+    evidence=[
+        {
+            "source": "BBC",
+            "title": "Europe heatwave kills dozens"
+        }
+    ]
+)
+
+print(generate_report_text(report))
