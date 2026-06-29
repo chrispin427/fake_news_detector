@@ -37,8 +37,10 @@ def generate_report(
             "%Y-%m-%d %H:%M:%S"
         ),
         "article_title": article_title,
-        "final_verdict": verdict_result["verdict"],
-        "verdict_score": verdict_result["score"],
+        "final_verdict": verdict_result.get("verdict", "Mixed Evidence"),
+        "verdict_score": verdict_result.get("score", credibility_score),
+        "verdict_explanations": verdict_result.get("explanations", []),
+        "score_breakdown": verdict_result.get("breakdown", {}),
         "credibility_score": credibility_score,
         "source": source_info,
         "fact_check": fact_result,
@@ -78,9 +80,28 @@ Verdict:
 Score:
 {report['verdict_score']}/100
 
-Credibility:
-{report['credibility_score']}/100
+Explanations:
+"""
 
+    for expl in report.get("verdict_explanations", []):
+        text += f"  - {expl}\n"
+
+    text += """
+--------------------------------------------------
+SCORE BREAKDOWN
+--------------------------------------------------
+"""
+
+    breakdown = report.get("score_breakdown", {})
+    for metric, data in breakdown.items():
+        label = metric.replace("_", " ").title()
+        raw = data.get("raw", "N/A")
+        weighted = data.get("weighted", "N/A")
+        weight = data.get("weight", "N/A")
+        text += f"\n{label} (weight: {weight}%):\n"
+        text += f"  Raw: {raw} | Weighted: {weighted}\n"
+
+    text += """
 --------------------------------------------------
 SOURCE
 --------------------------------------------------
@@ -101,8 +122,8 @@ FACT CHECK
 TIMELINE
 --------------------------------------------------
 
-Old News:
-{report['timeline']['is_old_news']}
+Status:
+{report['timeline']['status']}
 
 --------------------------------------------------
 SENTIMENT
@@ -293,6 +314,51 @@ def generate_pdf(report):
         "Credibility Score: " + str(report["credibility_score"]) + "/100",
         value_style
     ))
+
+    # --- EXPLANATIONS ---
+    explanations = report.get("verdict_explanations", [])
+    if explanations:
+        story.append(Paragraph("Why This Verdict", section_style))
+        for expl in explanations:
+            story.append(Paragraph(
+                "\u2022 " + expl,
+                ParagraphStyle(
+                    "ExplanationItem",
+                    parent=styles["Normal"],
+                    fontSize=10,
+                    textColor=DARK_GRAY,
+                    leftIndent=16,
+                    spaceAfter=3
+                )
+            ))
+
+    # --- SCORE BREAKDOWN ---
+    breakdown = report.get("score_breakdown", {})
+    if breakdown:
+        story.append(Paragraph("Score Breakdown", section_style))
+        bd_data = [["Signal", "Raw", "Weighted", "Weight"]]
+        for metric, data in breakdown.items():
+            label = metric.replace("_", " ").title()
+            raw_val = data.get("raw", "N/A")
+            weighted_val = round(data.get("weighted", 0), 2)
+            weight_val = str(data.get("weight", "")) + "%"
+            bd_data.append([label, str(raw_val), str(weighted_val), weight_val])
+        bd_table = Table(bd_data, colWidths=[1.5 * inch, 1 * inch, 1 * inch, 0.8 * inch])
+        bd_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), PRIMARY),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("BACKGROUND", (0, 1), (-1, -1), LIGHT_BG),
+        ]))
+        story.append(bd_table)
+        story.append(Spacer(1, 8))
 
     # --- SOURCE ---
     story.append(Paragraph("Source Information", section_style))

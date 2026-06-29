@@ -9,12 +9,22 @@ sys.path.append(
     )
 )
 
-from src.ui import apply_styles, render_hero, render_sidebar, show_footer, render_section_header, render_verdict_card, render_status_badge, render_evidence_card, render_download_section
+from src.ui import (
+    apply_styles, render_hero, render_sidebar, show_footer,
+    render_section_header, render_status_badge,
+    render_verdict_card, render_verdict_metrics, render_why_this_verdict,
+    render_evidence_section, render_advanced_analysis_section,
+    render_fact_check_result, render_entity_metrics,
+    render_source_verification, render_technical_metrics,
+    render_sentiment_analysis, render_virality_analysis,
+    render_timeline_analysis, render_risk_analysis,
+    render_source_comparison, render_headline_analysis,
+    render_rewrite_analysis, render_similarity_analysis,
+    render_download_section
+)
 from src.social_media import is_url
 from src.url_extractor import extract_article
 from src.analyzer import analyze_article
-from src.credibility import calculate_credibility_score
-from src.explainer import generate_explanation
 from src.source_rating import get_source_rating
 from src.fact_checker import fact_check
 from src.social_preview import get_preview
@@ -201,23 +211,14 @@ if analyze_clicked:
             st.warning("Timeline analysis failed: " + str(e))
             timeline_result = {"status": "Unknown", "years_old": None}
 
-        st.write("\u2714\ufe0f **Calculating credibility score...**")
+        st.write("\u2714\ufe0f **Calculating source verification metrics...**")
         try:
             matched_sources = sum(1 for v in results_dict.values() if v > 0) if results_dict else 0
             total_sources = len(results_dict) if results_dict else 0
-            credibility_score = calculate_credibility_score(prediction=prediction, confidence=confidence, matched_sources=matched_sources, total_sources=total_sources if total_sources > 0 else 1)
         except Exception as e:
-            st.warning("Credibility scoring failed: " + str(e))
-            credibility_score = 0
+            st.warning("Source metrics calculation failed: " + str(e))
             matched_sources = 0
             total_sources = 0
-
-        st.write("\u2714\ufe0f **Generating explanation...**")
-        try:
-            explanations = generate_explanation(prediction=prediction, confidence=confidence, matched_sources=matched_sources, total_sources=total_sources if total_sources > 0 else 1)
-        except Exception as e:
-            st.warning("Explanation generation failed: " + str(e))
-            explanations = ["Explanation could not be generated."]
 
         st.write("\u2714\ufe0f **Running source comparison...**")
         try:
@@ -247,16 +248,30 @@ if analyze_clicked:
             risk_level = "High" if risk_result.get("high_risk") else ("Medium" if len(risk_result.get("risk_categories", [])) > 1 else "Low")
             adapted_risk = {**risk_result, "risk_level": risk_level}
             adapted_timeline = {**timeline_result, "is_old_news": (timeline_result.get("status") == "Old Article")}
-            verdict_result = generate_verdict(prediction=prediction, confidence=confidence, credibility_score=credibility_score, matched_sources=matched_sources, total_sources=total_sources if total_sources > 0 else 1, sentiment_result=sentiment_result, risk_result=adapted_risk, timeline_result=adapted_timeline, headline_result=headline_result, rewrite_result=rewrite_result, source_comparison_result=source_comparison_result)
+            verdict_result = generate_verdict(
+                source_info=source_info,
+                prediction=prediction,
+                confidence=confidence,
+                matched_sources=matched_sources,
+                total_sources=total_sources if total_sources > 0 else 1,
+                fact_result=fact_result,
+                evidence=evidence,
+                sentiment_result=sentiment_result,
+                risk_result=adapted_risk,
+                timeline_result=adapted_timeline,
+                headline_result=headline_result,
+                rewrite_result=rewrite_result,
+                source_comparison_result=source_comparison_result
+            )
         except Exception as e:
             st.warning("Verdict generation failed: " + str(e))
-            verdict_result = {"score": credibility_score, "verdict": "Uncertain"}
+            verdict_result = {"score": 50, "verdict": "Mixed Evidence", "explanations": ["Verdict engine error occurred."]}
 
         st.write("\u2714\ufe0f **Building report...**")
         report = None
         report_text = ""
         try:
-            report = generate_report(article_title=article_title, verdict_result=verdict_result, credibility_score=credibility_score, source_info=source_info, fact_result=fact_result, timeline_result=adapted_timeline, sentiment_result=sentiment_result, virality_result=virality_result, risk_result=adapted_risk, source_comparison_result=source_comparison_result, evidence=evidence, headline_result=headline_result, rewrite_result=rewrite_result)
+            report = generate_report(article_title=article_title, verdict_result=verdict_result, credibility_score=verdict_result.get("score", 50), source_info=source_info, fact_result=fact_result, timeline_result=adapted_timeline, sentiment_result=sentiment_result, virality_result=virality_result, risk_result=adapted_risk, source_comparison_result=source_comparison_result, evidence=evidence, headline_result=headline_result, rewrite_result=rewrite_result)
             report_text = generate_report_text(report)
         except Exception as e:
             st.warning("Report generation failed: " + str(e))
@@ -273,244 +288,107 @@ if analyze_clicked:
         analysis_status.update(label="\u2705 Analysis complete!", state="complete")
 
     # ============================================================
-    # DASHBOARD METRICS ROW
+    # 1. VERDICT CARD (prominent, top of results)
     # ============================================================
 
     st.markdown("---")
-    verdict_score = verdict_result.get("score", credibility_score)
+    verdict_score = verdict_result.get("score", 50)
+    verdict_label = verdict_result.get("verdict", "Mixed Evidence")
+    verdict_explanations = verdict_result.get("explanations", [])
+    explanation_text = verdict_explanations[0] if verdict_explanations else "Analysis complete."
 
-    dash_cols = st.columns(5)
-    with dash_cols[0]:
-        st.metric(label="Credibility", value=str(credibility_score) + "/100", help="Overall credibility score")
-    with dash_cols[1]:
-        st.metric(label="Trust Score", value=str(source_info.get("score", 0)) + "/100", help="Source reputation")
-    with dash_cols[2]:
-        st.metric(label="Consensus", value=str(source_comparison_result.get("agreement", 0)) + "%", help="Source agreement")
-    with dash_cols[3]:
-        manip_risk = rewrite_result.get("risk", "High")
-        manip_display = "Low" if manip_risk == "Low" else ("Med" if manip_risk == "Medium" else "High")
-        st.metric(label="Manipulation", value=manip_display, help="Content manipulation risk")
-    with dash_cols[4]:
-        viral_level = virality_result.get("level", "Low")
-        st.metric(label="Virality", value=viral_level, help="How widely shared")
-
-    st.markdown("---")
-
-    # ============================================================
-    # A. EXECUTIVE SUMMARY
-    # ============================================================
-
-    render_section_header("\U0001f4cb", "Executive Summary")
-
-    verdict_label = verdict_result.get("verdict", "Uncertain")
-    if verdict_label in ("Highly Credible", "Likely Credible"):
-        explanation_text = "Verified across trusted sources with strong evidence support." if total_results > 0 else "Classified as credible based on ML analysis."
-    elif verdict_label == "Uncertain":
-        explanation_text = "Insufficient evidence to make a strong determination."
-    else:
-        explanation_text = "Contains unsupported claims and weak source verification."
-
+    # Large verdict card
     render_verdict_card(verdict_label, verdict_score, explanation_text)
 
-    for item in explanations:
-        st.write("\u2022 " + item)
-
-    st.markdown(f'<div style="margin-top:8px;"><strong>Confidence:</strong> {confidence*100:.1f}%</div>', unsafe_allow_html=True)
-    st.progress(confidence)
+    # Trust Score + Confidence side by side
+    trust_score = source_info.get("score", 0)
+    render_verdict_metrics(trust_score, confidence, source_info.get("label", "N/A"))
 
     # ============================================================
-    # B. SOURCE ANALYSIS
+    # 2. WHY THIS VERDICT?
     # ============================================================
 
-    render_section_header("\U0001f310", "Source Analysis")
-    render_section_header("\U0001f3e2", "Source Reputation")
-    src_cols = st.columns(3)
-    with src_cols[0]:
-        st.metric("Domain", source_info.get("domain", "N/A"))
-    with src_cols[1]:
-        st.metric("Trust Score", str(source_info.get("score", 0)) + "/100")
-    with src_cols[2]:
-        render_status_badge(source_info.get("label", "N/A"), "blue")
-
-    render_section_header("\U0001f517", "Source Verification")
-    if results_dict:
-        sv_col1, sv_col2 = st.columns([3, 1])
-        with sv_col2:
-            st.metric("Matched", str(matched_sources) + "/" + str(total_sources))
-        for api_name, count in results_dict.items():
-            if count > 0:
-                st.success("**" + api_name + ":** Found " + str(count) + " matching articles")
-            else:
-                st.warning("**" + api_name + ":** No matching articles found")
-    else:
-        st.info("No source verification data available (API keys may be missing).")
-
-    render_section_header("\U0001f91d", "Source Consensus")
-    agmt = source_comparison_result.get("agreement", 0)
-    classification = source_comparison_result.get("classification", "N/A")
-    sources_checked = source_comparison_result.get("sources_checked", 0)
-    sc_cols = st.columns(3)
-    with sc_cols[0]:
-        st.metric("Agreement", str(agmt) + "%")
-    with sc_cols[1]:
-        cls_color = "green" if classification == "High Agreement" else ("yellow" if classification == "Moderate Agreement" else "red")
-        render_status_badge(classification, cls_color)
-    with sc_cols[2]:
-        st.metric("Sources", sources_checked)
+    render_why_this_verdict(verdict_explanations)
 
     # ============================================================
-    # C. FACT CHECKING
+    # 3. SUPPORTING EVIDENCE
     # ============================================================
 
-    render_section_header("\U0001f50e", "Fact Checking")
-
-    render_section_header("\U0001f4a1", "Detected Claim")
-    if claim_text:
-        st.info("**" + claim_text + "**")
-    else:
-        st.info("No claim could be extracted from the text.")
-
-    render_section_header("\u2696\ufe0f", "Fact Check Verdict")
-    fact_verdict = fact_result.get("verdict", "Unverified")
-    fact_color = "green" if fact_verdict == "Supported" else ("yellow" if fact_verdict == "Partially Supported" else "red")
-    render_status_badge(fact_verdict, fact_color)
-    st.write("**Sources matched:** " + str(fact_result.get("sources", 0)))
-
-    render_section_header("\U0001f3f7\ufe0f", "Detected Entities")
-    if any(entities.values()):
-        en_cols = st.columns(4)
-        with en_cols[0]:
-            st.metric("People", len(entities.get("people", [])))
-            if entities.get("people"):
-                st.caption(", ".join(entities["people"][:5]))
-        with en_cols[1]:
-            st.metric("Organizations", len(entities.get("organizations", [])))
-            if entities.get("organizations"):
-                st.caption(", ".join(entities["organizations"][:5]))
-        with en_cols[2]:
-            st.metric("Locations", len(entities.get("locations", [])))
-            if entities.get("locations"):
-                st.caption(", ".join(entities["locations"][:5]))
-        with en_cols[3]:
-            st.metric("Dates", len(entities.get("dates", [])))
-            if entities.get("dates"):
-                st.caption(", ".join(entities["dates"][:5]))
-    else:
-        st.info("No named entities detected in the text.")
-
-    render_section_header("\U0001f4da", "Supporting Evidence")
-    if evidence:
-        for item in evidence[:10]:
-            render_evidence_card(item.get("title", "Untitled"), item.get("source", "Unknown"), item.get("url", ""))
-    else:
-        st.info("No supporting evidence found from external sources.")
+    render_evidence_section(evidence)
 
     # ============================================================
-    # D. MANIPULATION ANALYSIS
+    # 4. ADVANCED ANALYSIS (collapsible - hidden by default)
     # ============================================================
 
-    render_section_header("\u26a0\ufe0f", "Manipulation Analysis")
+    with render_advanced_analysis_section():
 
-    render_section_header("\U0001f4f0", "Headline Analysis")
-    hl_score = headline_result.get("score", 0)
-    hl_risk = headline_result.get("risk", "Low")
-    hl_reasons = headline_result.get("reasons", [])
-    hl_cols = st.columns(2)
-    with hl_cols[0]:
-        hl_color = "green" if hl_risk == "Low" else ("yellow" if hl_risk == "Medium" else "red")
-        render_status_badge(hl_risk + " Risk", hl_color)
-    with hl_cols[1]:
-        st.metric("Sensationalism Score", str(hl_score) + "/100")
-    if hl_reasons:
-        for reason in hl_reasons:
-            st.write("\u2022 " + reason)
-    else:
-        st.info("No sensationalism or clickbait indicators detected.")
+        # --- Source Reputation ---
+        st.markdown("**\U0001f3e2 Source Reputation**")
+        src_cols = st.columns(3)
+        with src_cols[0]:
+            st.metric("Domain", source_info.get("domain", "N/A"))
+        with src_cols[1]:
+            st.metric("Trust Score", str(source_info.get("score", 0)) + "/100")
+        with src_cols[2]:
+            label = source_info.get("label", "N/A")
+            label_colors = {"Highly Trusted": "green", "Trusted": "green", "Mixed Reliability": "yellow", "Low Reliability": "red", "Unknown": "blue"}
+            lc = label_colors.get(label, "blue")
+            c_map = {"green": "#4ade80", "yellow": "#fbbf24", "red": "#f87171", "blue": "#60a5fa"}
+            st.markdown(f'<span style="display:inline-block;padding:2px 10px;border-radius:6px;font-size:12px;font-weight:600;text-transform:uppercase;background:rgba(59,130,246,0.15);color:{c_map.get(lc, "#60a5fa")};">{label}</span>', unsafe_allow_html=True)
 
-    render_section_header("\u270f\ufe0f", "Content Manipulation")
-    rw_similarity = rewrite_result.get("similarity", 0)
-    rw_risk = rewrite_result.get("risk", "High")
-    rw_explanation = rewrite_result.get("explanation", "")
-    rw_cols = st.columns(2)
-    with rw_cols[0]:
-        st.metric("Source Similarity", str(rw_similarity) + "%")
-    with rw_cols[1]:
-        rw_color = "green" if rw_risk == "Low" else ("yellow" if rw_risk == "Medium" else "red")
-        render_status_badge(rw_risk + " Risk", rw_color)
-    if rw_explanation:
-        st.info(rw_explanation)
+        # --- Fact Check ---
+        st.markdown("---")
+        st.markdown("**\u2696\ufe0f Fact Check**")
+        fact_verdict = fact_result.get("verdict", "Unverified")
+        fact_sources = fact_result.get("sources", 0)
+        render_fact_check_result(claim_text, fact_verdict, fact_sources)
 
-    render_section_header("\U0001f4ac", "Sentiment Analysis")
-    sent_cols = st.columns(3)
-    with sent_cols[0]:
-        polarity = sentiment_result.get("polarity", 0)
-        polarity_label = "Positive" if polarity > 0.1 else ("Negative" if polarity < -0.1 else "Neutral")
-        st.metric("Polarity", "{:.2f}".format(polarity) + " (" + polarity_label + ")")
-    with sent_cols[1]:
-        man_risk = sentiment_result.get("manipulation_risk", "Low")
-        man_color = "green" if man_risk == "Low" else ("yellow" if man_risk == "Medium" else "red")
-        render_status_badge(man_risk + " Risk", man_color)
-    with sent_cols[2]:
-        words = sentiment_result.get("sensational_words", [])
-        st.metric("Sensational Words", len(words))
-    if words:
-        st.write("**Detected:** " + ", ".join(words))
+        # --- Entity Detection ---
+        st.markdown("**\U0001f3f7\ufe0f Entity Detection**")
+        render_entity_metrics(entities)
 
-    render_section_header("\U0001f4d0", "Claim-Article Similarity")
-    sim_cols = st.columns(2)
-    with sim_cols[0]:
-        st.metric("Similarity Score", str(similarity_score) + "%")
-    with sim_cols[1]:
-        if similarity_score > 80:
-            st.success("Strong alignment between claim and article")
-        elif similarity_score > 50:
-            st.info("Moderate alignment between claim and article")
-        else:
-            st.warning("Weak alignment - claim may not match article content")
+        # --- Source Verification ---
+        st.markdown("**\U0001f517 Source Verification**")
+        render_source_verification(results_dict, matched_sources, total_sources)
 
-    # ============================================================
-    # E. CONTEXT ANALYSIS
-    # ============================================================
+        # --- Source Consensus ---
+        st.markdown("**\U0001f91d Source Consensus**")
+        render_source_comparison(source_comparison_result)
 
-    render_section_header("\U0001f4ca", "Context Analysis")
+        # --- Headline Analysis ---
+        st.markdown("**\U0001f4f0 Headline Analysis**")
+        render_headline_analysis(headline_result)
 
-    render_section_header("\u26a0\ufe0f", "Risk Assessment")
-    risk_categories = risk_result.get("risk_categories", ["General"])
-    st.write("**Categories:** " + ", ".join(risk_categories))
-    if risk_result.get("high_risk", False):
-        st.error("High Risk - involves sensitive topics (Health, Political, Financial, or Scam)")
-    else:
-        st.success("Low Risk - general content")
+        # --- Content Manipulation ---
+        st.markdown("**\u270f\ufe0f Content Manipulation**")
+        render_rewrite_analysis(rewrite_result)
 
-    render_section_header("\U0001f4c8", "Virality Analysis")
-    vir_cols = st.columns(2)
-    with vir_cols[0]:
-        st.metric("Total Mentions", virality_result.get("mentions", 0))
-    with vir_cols[1]:
-        spread_level = virality_result.get("level", "Low")
-        spread_color = "green" if spread_level in ("Low",) else ("yellow" if spread_level == "Medium" else "red")
-        render_status_badge(spread_level, spread_color)
+        # --- Sentiment Analysis ---
+        st.markdown("**\U0001f4ac Sentiment Analysis**")
+        render_sentiment_analysis(sentiment_result)
 
-    render_section_header("\U0001f4c5", "Timeline Analysis")
-    tl_status = timeline_result.get("status", "Unknown")
-    tl_years = timeline_result.get("years_old")
-    tl_cols = st.columns(2)
-    with tl_cols[0]:
-        st.metric("Status", tl_status)
-    with tl_cols[1]:
-        if tl_years is not None:
-            st.metric("Age", str(tl_years) + " years")
-        else:
-            st.metric("Age", "Unknown")
-    if tl_status == "Old Article":
-        st.warning("This article is older than 1 year. Context may have changed.")
-    elif tl_status == "Recent":
-        st.success("This article is recent.")
-    elif tl_status == "Not Recent":
-        st.info("This article is from the past few months.")
+        # --- Similarity Analysis ---
+        st.markdown("**\U0001f4d0 Claim-Article Similarity**")
+        render_similarity_analysis(similarity_score)
+
+        # --- Timeline Analysis ---
+        st.markdown("**\U0001f4c5 Timeline Analysis**")
+        render_timeline_analysis(timeline_result)
+
+        # --- Risk Assessment ---
+        st.markdown("**\u26a0\ufe0f Risk Assessment**")
+        render_risk_analysis(risk_result)
+
+        # --- Virality Analysis ---
+        st.markdown("**\U0001f4c8 Virality Analysis**")
+        render_virality_analysis(virality_result)
+
+        # --- Score Breakdown ---
+        st.markdown("**\U0001f4ca Score Breakdown**")
+        render_technical_metrics(verdict_result.get("breakdown", {}))
 
     # ============================================================
-    # F. FULL REPORT
+    # 5. DOWNLOAD REPORT
     # ============================================================
 
     st.markdown("---")
