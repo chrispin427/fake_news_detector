@@ -2,12 +2,15 @@ import streamlit as st
 import sys
 import os
 
-# Fix import path
-sys.path.append(
-    os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..")
-    )
-)
+# Fix import path - try multiple approaches for different environments
+_this_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.abspath(os.path.join(_this_dir, ".."))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+# Also try the current working directory
+_cwd = os.getcwd()
+if _cwd not in sys.path and _cwd != _project_root:
+    sys.path.insert(0, _cwd)
 
 from src.ui import (
     apply_styles, render_hero, render_sidebar, show_footer,
