@@ -45,6 +45,49 @@ from src.headline_checker import analyze_headline
 from src.rewrite_detector import detect_rewrite
 
 # --------------------------------------------------
+# SOCIAL MEDIA URL DETECTION
+# --------------------------------------------------
+# Social-media platforms often expose only preview metadata
+# rather than full article content. These URLs need special
+# handling to bypass the strict 30-word article requirement.
+
+SOCIAL_MEDIA_DOMAINS = [
+    "facebook.com", "fb.com", "fb.watch",
+    "x.com", "twitter.com", "t.co",
+    "instagram.com", "instagr.am",
+    "tiktok.com", "vm.tiktok.com",
+    "youtube.com", "youtu.be",
+    "threads.net",
+    "linkedin.com", "lnkd.in",
+]
+
+
+def _is_social_media_url(url: str) -> bool:
+    """
+    Detect whether a URL belongs to a known social-media platform.
+
+    Social-media posts (Facebook, X, Instagram, TikTok, YouTube,
+    Threads, LinkedIn) generally return short preview snippets rather
+    than full article text, so they need a lower word-count threshold
+    and a different validation path than traditional news articles.
+
+    Args:
+        url: The URL to check.
+
+    Returns:
+        True if the URL's domain matches a known social-media platform.
+    """
+    from urllib.parse import urlparse
+    try:
+        domain = urlparse(url).netloc.lower()
+        domain = domain.replace("www.", "")
+        # Use endswith to avoid false matches (e.g. "myfacebook.com")
+        return any(domain == social or domain.endswith("." + social) for social in SOCIAL_MEDIA_DOMAINS)
+    except Exception:
+        return False
+
+
+# --------------------------------------------------
 # PAGE SETUP
 # --------------------------------------------------
 
@@ -70,6 +113,7 @@ if analyze_clicked:
 
     text_to_analyze = user_input
     article_title = "User-Submitted Text"
+    is_social = False  # Default; set to True if a social-media URL is detected below
 
     # --------------------------------------------------
     # URL MODE
@@ -79,19 +123,45 @@ if analyze_clicked:
     source_info = {"domain": "N/A", "score": 0, "label": "N/A"}
 
     if is_url(user_input):
-        with st.status("Extracting article from URL...", expanded=True) as url_status:
-            st.info("URL detected. Extracting article...")
+        # ------------------------------------------------------------------
+        # Detect social-media platforms early so they can follow a different
+        # validation path (social posts rarely expose 30+ words of content).
+        # ------------------------------------------------------------------
+        is_social = _is_social_media_url(user_input)
+
+        with st.status("Extracting content from URL...", expanded=True) as url_status:
+            status_label = "Social media post detected" if is_social else "URL detected. Extracting article..."
+            st.info(status_label)
+
             article_result = extract_article(user_input)
             if not article_result.get("success", False):
                 st.error("Could not extract article: " + article_result.get("error", "Unknown error"))
                 st.stop()
+
             text_to_analyze = article_result["text"]
             article_title = article_result.get("title", "Untitled Article")
             publish_date = article_result.get("publish_date")
+
             try:
                 preview = get_preview(user_input)
             except Exception:
                 preview = None
+
+            # For social-media posts, combine title, description, and
+            # extracted text into a single block to maximise the amount
+            # of information available for analysis.
+            if is_social:
+                combined_parts = []
+                if article_title and article_title != "Untitled Article":
+                    combined_parts.append(article_title)
+                if preview and preview.get("description"):
+                    combined_parts.append(preview["description"])
+                if text_to_analyze.strip():
+                    combined_parts.append(text_to_analyze)
+                merged = " ".join(combined_parts)
+                if merged.strip():
+                    text_to_analyze = merged
+
             render_section_header("\U0001f4f0", "Article Preview")
             st.markdown("### " + article_title)
             if preview and preview.get("image"):
@@ -111,27 +181,45 @@ if analyze_clicked:
             with sr_col2:
                 render_status_badge(source_info["label"], "blue")
                 st.write("**Domain:** " + source_info["domain"])
-            url_status.update(label="Article extracted successfully", state="complete")
+            url_status.update(label="Content extracted successfully", state="complete")
 
     # --------------------------------------------------
     # VALIDATION
     # --------------------------------------------------
+    # Social-media platforms (Facebook, X, Instagram, TikTok, etc.)
+    # rarely expose full post content to external applications.
+    # Most of the time only a title, short description, or preview
+    # metadata is available. These posts are validated against a
+    # lower threshold (10 words) instead of the 30-word minimum
+    # applied to traditional news articles.
 
-    if len(text_to_analyze.split()) < 30:
+    word_count = len(text_to_analyze.split())
 
-        st.warning("Please provide a FULL news article (minimum 30 words).")
+    if is_social:
+        if word_count >= 10:
+            st.info("\U0001f4f1 Social media post detected. Running limited-content verification...")
+            st.info("\U0001f50d Analyzing social media claim...")
+        else:
+            st.warning(
+                "This social media post is too short to verify reliably "
+                "(" + str(word_count) + " words). Please provide additional context "
+                "or include a longer description of the claim."
+            )
+            st.stop()
+    else:
+        # Traditional news article validation — require meaningful content
+        if word_count < 30:
+            st.warning("Please provide a FULL news article (minimum 30 words).")
+            st.markdown("""
+            ### Example
 
-        st.markdown("""
-        ### Example
-
-        WASHINGTON (Reuters) - The government announced
-        a new education policy today aimed at improving
-        access to schools. Officials stated that the
-        policy will increase funding and provide more
-        resources for teachers and students nationwide.
-        """)
-
-        st.stop()
+            WASHINGTON (Reuters) - The government announced
+            a new education policy today aimed at improving
+            access to schools. Officials stated that the
+            policy will increase funding and provide more
+            resources for teachers and students nationwide.
+            """)
+            st.stop()
 
     # ============================================================
     # ANALYSIS PIPELINE
