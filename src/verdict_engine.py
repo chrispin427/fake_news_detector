@@ -11,7 +11,7 @@ logger = logging.getLogger("verdict_engine")
 # Trusted publishers list (highly reputable sources)
 # ------------------------------------------------------------------
 TRUSTED_PUBLISHERS = [
-    "reuters.com", "apnews.com", "bbc.com", "bbc.co.uk",
+    "reuters.com", "apnews.com", "ap.org", "bbc.com", "bbc.co.uk",
     "nbcnews.com", "abcnews.go.com", "cbsnews.com",
     "aljazeera.com", "ft.com", "bloomberg.com", "wsj.com",
     "npr.org", "theguardian.com", "nytimes.com", "washingtonpost.com"
@@ -112,12 +112,12 @@ def _score_ml_prediction(prediction, confidence):
 
 
 def _is_trusted_source(source_info):
-    """Check if the source is a highly trusted publisher (score >= 85)."""
+    """Check if the source is a highly trusted publisher (score >= 90)."""
     if not source_info:
         return False
     domain = source_info.get("domain", "").lower()
     score = source_info.get("score", 0)
-    return domain in TRUSTED_PUBLISHERS and score >= 85
+    return domain in TRUSTED_PUBLISHERS and score >= 90
 
 
 def _check_fake_conditions(source_info, evidence, rewrite_result, headline_result,
@@ -154,11 +154,59 @@ def _check_fake_conditions(source_info, evidence, rewrite_result, headline_resul
     return conditions, reasons
 
 
+def _count_strong_negative_signals(rewrite_result, headline_result, fact_result, confidence):
+    """
+    Count truly independent negative signals that justify overriding
+    a trusted-source presumption of credibility.
+
+    Signals counted:
+    - Manipulation: rewrite risk is High
+    - Clickbait: headline risk is High
+    - Failed fact check: verdict is Unverified with 0 matched sources
+    - Very low ML confidence: confidence < 0.6
+
+    Returns:
+        Tuple of (count, list of signal names)
+    """
+    signals = []
+
+    # Manipulation signal
+    manip_risk = rewrite_result.get("risk", "Low") if rewrite_result else "Low"
+    if manip_risk == "High":
+        signals.append("manipulation")
+
+    # Clickbait / sensational headline signal
+    hl_risk = headline_result.get("risk", "Low") if headline_result else "Low"
+    if hl_risk == "High":
+        signals.append("clickbait")
+
+    # Failed fact check signal
+    fc_verdict = fact_result.get("verdict", "Unverified") if fact_result else "Unverified"
+    fc_sources = fact_result.get("sources", 0) if fact_result else 0
+    if fc_verdict == "Unverified" and fc_sources == 0:
+        signals.append("failed_fact_check")
+
+    # Very low ML confidence signal
+    if confidence is not None and confidence < 0.6:
+        signals.append("low_confidence")
+
+    return len(signals), signals
+
+
 def _determine_verdict(score, conditions_met, conditions_reasons, is_trusted,
-                       source_info, evidence, source_comparison_result):
+                       source_info, evidence, source_comparison_result,
+                       rewrite_result=None, headline_result=None,
+                       fact_result=None, confidence=None):
     """
     Determine final verdict category based on score and context.
     Applies trusted source overrides and evidence-based verification.
+
+    Strengthened override logic:
+    - Sources with reputation 90+ (BBC, Reuters, AP, etc.) get a strong
+      presumption of credibility. Weak evidence alone does not reduce
+      the verdict below "Likely Credible" unless there are multiple
+      independent negative signals (manipulation, clickbait, failed
+      fact checking, or very low ML confidence).
     """
     explanations = []
     final_score = score
@@ -166,23 +214,60 @@ def _determine_verdict(score, conditions_met, conditions_reasons, is_trusted,
     num_evidence = len(evidence) if evidence else 0
     agreement = source_comparison_result.get("agreement", 0) if source_comparison_result else 0
 
-    # Trusted Source Override
+    # --- Debug logging ---
+    logger.info("")
+    logger.info("-" * 50)
+    logger.info("DETERMINE VERDICT - DEBUG")
+    logger.info("-" * 50)
+    logger.info("Initial score:          %s", score)
+    logger.info("Trusted source:         %s (domain=%s, score=%s)", is_trusted,
+                source_info.get("domain", "N/A") if source_info else "N/A", source_score)
+    logger.info("Evidence count:         %s", num_evidence)
+    logger.info("Agreement:              %s%%", agreement)
+    logger.info("Conditions met:         %s", conditions_met)
+    logger.info("Condition reasons:      %s", conditions_reasons)
+
+    # Count strong negative signals for trusted source override
+    strong_count, strong_signals = _count_strong_negative_signals(
+        rewrite_result, headline_result, fact_result, confidence
+    )
+    logger.info("Strong negative signals: %s (count=%s)", strong_signals, strong_count)
+
+    # --- Trusted Source Override (strengthened) ---
     if is_trusted:
         explanations.append("Published by a highly trusted news source")
-        if source_score >= 85 and num_evidence >= 3:
-            final_score = max(final_score, 80)
-            explanations.append("Trusted source with " + str(num_evidence) + " supporting articles - credibility boosted")
-        if source_score >= 85 and agreement >= 70:
-            final_score = max(final_score, 85)
-            explanations.append("Strong agreement with trusted sources - leaning credible")
 
-    # Trusted source with < 2 negative conditions: never allow fake verdict
-    if is_trusted and len(conditions_met) < 2:
-        if final_score < 50:
+        # When source score >= 90, apply strong presumption of credibility
+        if source_score >= 90:
+            # Only allow score reduction below Likely Credible (75) if there
+            # are at least 2 independent negative signals
+            if final_score < 75 and strong_count < 2:
+                old_score = final_score
+                final_score = 75
+                logger.info("TRUSTED-SOURCE OVERRIDE: score raised from %s to 75 (strong negatives=%s, need >=2)",
+                            old_score, strong_count)
+                explanations.append(
+                    "Trusted-source override: preserved Likely Credible despite limited evidence"
+                )
+            elif final_score >= 75:
+                # Still add positive reinforcement if score is already good
+                if num_evidence >= 3:
+                    explanations.append(
+                        "Trusted source with " + str(num_evidence) + " supporting articles - credibility reinforced"
+                    )
+                if agreement >= 70:
+                    explanations.append(
+                        "Strong agreement with trusted sources - leaning credible"
+                    )
+
+        # Fallback override for trusted sources with < 2 conditions met
+        if len(conditions_met) < 2 and final_score < 50:
+            old_score = final_score
             final_score = 55
+            logger.info("TRUSTED-SOURCE OVERRIDE (fallback): score raised from %s to 55", old_score)
             explanations.append("Trusted source override: insufficient evidence for suspicious verdict")
 
-    # Evidence-Based Verification
+    # --- Evidence-Based Verification ---
     if source_score >= 85 and num_evidence >= 3:
         explanations.append("Published by trusted source")
         explanations.append("Supported by " + str(num_evidence) + " external articles")
@@ -196,7 +281,7 @@ def _determine_verdict(score, conditions_met, conditions_reasons, is_trusted,
 
     final_score = max(0, min(100, final_score))
 
-    # Verdict categories
+    # --- Verdict categories ---
     if final_score >= 90:
         verdict = "Highly Credible"
         if not any("trusted source" in e.lower() for e in explanations):
@@ -217,12 +302,17 @@ def _determine_verdict(score, conditions_met, conditions_reasons, is_trusted,
         if not any("manipulation" in e.lower() for e in explanations):
             explanations.append("Multiple signals indicate potential misinformation")
 
+    # Deduplicate explanations while preserving order
     seen = set()
     unique_explanations = []
     for e in explanations:
         if e not in seen:
             seen.add(e)
             unique_explanations.append(e)
+
+    logger.info("FINAL VERDICT: %s (score=%s)", verdict, final_score)
+    logger.info("EXPLANATIONS: %s", unique_explanations)
+    logger.info("-" * 50)
 
     return verdict, unique_explanations, final_score
 
@@ -319,14 +409,19 @@ def generate_verdict(
         source_comparison_result, prediction, confidence
     )
 
-    # Determine verdict with overrides
+    # Determine verdict with overrides (pass additional params for strengthened override)
     verdict, explanations, final_score = _determine_verdict(
         total, conditions_met, condition_reasons, is_trusted,
-        source_info, evidence, source_comparison_result
+        source_info, evidence, source_comparison_result,
+        rewrite_result=rewrite_result, headline_result=headline_result,
+        fact_result=fact_result, confidence=confidence
     )
 
     logger.info("SOURCE: %s (score=%s, trusted=%s)", source_info.get("domain", "N/A"), source_info.get("score", 0), is_trusted)
     logger.info("CONDITIONS MET: %s", len(conditions_met))
+    logger.info("REWRITE SIMILARITY: %s, RISK: %s", rewrite_result.get("similarity", "N/A"), rewrite_result.get("risk", "N/A"))
+    logger.info("EVIDENCE COUNT: %s", len(evidence) if evidence else 0)
+    logger.info("AGREEMENT: %s%%", source_comparison_result.get("agreement", 0) if source_comparison_result else "N/A")
     logger.info("FINAL VERDICT: %s (score=%s)", verdict, final_score)
     logger.info("EXPLANATIONS: %s", explanations)
 

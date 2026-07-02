@@ -1,54 +1,18 @@
-from report_generator import (
-    generate_report,
-    generate_report_text
+from search_fallback import (
+    search_from_failed_url
 )
 
-report = generate_report(
-    article_title="Europe Heatwave Kills Dozens",
+url = input("URL: ")
 
-    verdict_result={
-        "verdict": "Likely Credible",
-        "score": 82
-    },
+results = search_from_failed_url(url)
 
-    credibility_score=88,
+for item in results:
 
-    source_info={
-        "domain": "bbc.com",
-        "label": "Trusted",
-        "score": 95
-    },
+    print("\nTITLE:")
+    print(item["title"])
 
-    fact_result={
-        "verdict": "Supported"
-    },
+    print("\nLINK:")
+    print(item["link"])
 
-    timeline_result={
-        "is_old_news": False
-    },
-
-    sentiment_result={
-        "manipulation_risk": "Low"
-    },
-
-    virality_result={
-        "level": "High"
-    },
-
-    risk_result={
-        "risk_level": "Low"
-    },
-
-    source_comparison_result={
-        "agreement": 81
-    },
-
-    evidence=[
-        {
-            "source": "BBC",
-            "title": "Europe heatwave kills dozens"
-        }
-    ]
-)
-
-print(generate_report_text(report))
+    print("\nSNIPPET:")
+    print(item["snippet"])

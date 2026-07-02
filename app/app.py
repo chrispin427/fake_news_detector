@@ -122,6 +122,9 @@ if analyze_clicked:
     publish_date = None
     source_info = {"domain": "N/A", "score": 0, "label": "N/A"}
 
+    is_fallback = False  # Track whether extraction used search fallback
+    fallback_results = []  # Holds search fallback results when direct extraction fails
+
     if is_url(user_input):
         # ------------------------------------------------------------------
         # Detect social-media platforms early so they can follow a different
@@ -134,45 +137,102 @@ if analyze_clicked:
             st.info(status_label)
 
             article_result = extract_article(user_input)
-            if not article_result.get("success", False):
+            source_type = article_result.get("source_type", "direct")
+
+            # ------------------------------------------------------------------
+            # STATE 1: Total extraction failure — both direct and fallback failed
+            # ------------------------------------------------------------------
+            if source_type == "failed" or (not article_result.get("success", False) and source_type != "search_fallback"):
                 st.error("Could not extract article: " + article_result.get("error", "Unknown error"))
                 st.stop()
 
-            text_to_analyze = article_result["text"]
-            article_title = article_result.get("title", "Untitled Article")
-            publish_date = article_result.get("publish_date")
+            # ------------------------------------------------------------------
+            # STATE 2: Extraction recovered via search fallback
+            # ------------------------------------------------------------------
+            if source_type == "search_fallback":
+                is_fallback = True
+                fallback_results = article_result.get("fallback_results", [])
+                # Use top result snippet + title as the text to analyze
+                fallback_snippet = article_result.get("text", "")
+                fallback_title = article_result.get("title", "")
+                article_title = fallback_title if fallback_title else "Untitled Article (Search Fallback)"
+                text_to_analyze = (fallback_title + " " + fallback_snippet).strip()
+                publish_date = None
 
-            try:
-                preview = get_preview(user_input)
-            except Exception:
-                preview = None
+                st.warning(
+                    "\u26a0\ufe0f The article could not be extracted directly from the URL. "
+                    "The system searched the web for related coverage instead."
+                )
 
-            # For social-media posts, combine title, description, and
-            # extracted text into a single block to maximise the amount
-            # of information available for analysis.
-            if is_social:
-                combined_parts = []
-                if article_title and article_title != "Untitled Article":
-                    combined_parts.append(article_title)
+                # --- Display Related Web Results ---
+                st.markdown("### \U0001f310 Related Web Results")
+                if fallback_results:
+                    for i, result in enumerate(fallback_results[:5]):
+                        title = result.get("title", "Untitled")
+                        snippet = result.get("snippet", "No snippet available.")
+                        link = result.get("link", "")
+                        link_html = (
+                            f'<a href="{link}" target="_blank" style="font-size:13px;color:#3b82f6;text-decoration:none;">'
+                            f'\U0001f517 Open article</a>'
+                        ) if link else ""
+                        with st.expander(
+                            f"Result {i+1}: {title}",
+                            expanded=(i == 0)
+                        ):
+                            st.write(snippet)
+                            if link_html:
+                                st.markdown(link_html, unsafe_allow_html=True)
+
+                url_status.update(
+                    label="Content extracted via web search fallback",
+                    state="complete"
+                )
+
+            # ------------------------------------------------------------------
+            # STATE 3: Direct extraction succeeded (normal flow)
+            # ------------------------------------------------------------------
+            else:
+                text_to_analyze = article_result["text"]
+                article_title = article_result.get("title", "Untitled Article")
+                publish_date = article_result.get("publish_date")
+
+                try:
+                    preview = get_preview(user_input)
+                except Exception:
+                    preview = None
+
+                # For social-media posts, combine title, description, and
+                # extracted text into a single block to maximise the amount
+                # of information available for analysis.
+                if is_social:
+                    combined_parts = []
+                    if article_title and article_title != "Untitled Article":
+                        combined_parts.append(article_title)
+                    if preview and preview.get("description"):
+                        combined_parts.append(preview["description"])
+                    if text_to_analyze.strip():
+                        combined_parts.append(text_to_analyze)
+                    merged = " ".join(combined_parts)
+                    if merged.strip():
+                        text_to_analyze = merged
+
+                render_section_header("\U0001f4f0", "Article Preview")
+                st.markdown("### " + article_title)
+                if preview and preview.get("image"):
+                    st.image(preview["image"], use_container_width=True)
                 if preview and preview.get("description"):
-                    combined_parts.append(preview["description"])
-                if text_to_analyze.strip():
-                    combined_parts.append(text_to_analyze)
-                merged = " ".join(combined_parts)
-                if merged.strip():
-                    text_to_analyze = merged
+                    st.info(preview["description"])
+                st.text_area("Extracted Content", text_to_analyze[:1500], height=200, disabled=True)
+                if article_result.get("authors"):
+                    st.write("**Authors:** " + ", ".join(article_result["authors"]))
+                if publish_date:
+                    st.write("**Published:** " + str(publish_date))
 
-            render_section_header("\U0001f4f0", "Article Preview")
-            st.markdown("### " + article_title)
-            if preview and preview.get("image"):
-                st.image(preview["image"], use_container_width=True)
-            if preview and preview.get("description"):
-                st.info(preview["description"])
-            st.text_area("Extracted Content", text_to_analyze[:1500], height=200, disabled=True)
-            if article_result.get("authors"):
-                st.write("**Authors:** " + ", ".join(article_result["authors"]))
-            if publish_date:
-                st.write("**Published:** " + str(publish_date))
+                url_status.update(label="Content extracted successfully", state="complete")
+
+            # ------------------------------------------------------------------
+            # Source Reputation (shared across all three states)
+            # ------------------------------------------------------------------
             render_section_header("\U0001f3e2", "Source Reputation")
             source_info = get_source_rating(user_input)
             sr_col1, sr_col2 = st.columns([1, 2])
@@ -181,7 +241,6 @@ if analyze_clicked:
             with sr_col2:
                 render_status_badge(source_info["label"], "blue")
                 st.write("**Domain:** " + source_info["domain"])
-            url_status.update(label="Content extracted successfully", state="complete")
 
     # --------------------------------------------------
     # VALIDATION
@@ -192,10 +251,22 @@ if analyze_clicked:
     # metadata is available. These posts are validated against a
     # lower threshold (10 words) instead of the 30-word minimum
     # applied to traditional news articles.
+    #
+    # Fallback mode (search fallback) also uses a relaxed threshold
+    # since only snippets and titles are available.
 
     word_count = len(text_to_analyze.split())
 
-    if is_social:
+    if is_fallback:
+        if word_count >= 5:
+            st.info("\U0001f50d Analyzing article using related web coverage...")
+        else:
+            st.warning(
+                "The search fallback did not return enough content to analyze reliably "
+                "(" + str(word_count) + " words)."
+            )
+            st.stop()
+    elif is_social:
         if word_count >= 10:
             st.info("\U0001f4f1 Social media post detected. Running limited-content verification...")
             st.info("\U0001f50d Analyzing social media claim...")
@@ -260,12 +331,34 @@ if analyze_clicked:
 
         st.write("\u2714\ufe0f **Gathering supporting evidence...**")
         try:
-            evidence_query = claim_text if claim_text else " ".join(text_to_analyze.split()[:10])
+            # Prioritize article title as search query - produces better matches
+            evidence_query = article_title if article_title and article_title != "User-Submitted Text" and article_title != "Untitled Article" else (claim_text if claim_text else " ".join(text_to_analyze.split()[:10]))
             evidence = find_evidence(evidence_query)
+            # Supplement evidence with fallback search results when direct extraction failed
+            if is_fallback and fallback_results:
+                existing_urls = {e.get("url") for e in evidence if e.get("url")}
+                for fb in fallback_results:
+                    fb_url = fb.get("link", "")
+                    if fb_url and fb_url not in existing_urls:
+                        evidence.append({
+                            "source": "Web Search",
+                            "title": fb.get("title", ""),
+                            "url": fb_url
+                        })
+                        existing_urls.add(fb_url)
+                st.write("Included " + str(len(fallback_results)) + " related web results as supplementary evidence")
             st.write("Found " + str(len(evidence)) + " evidence items")
         except Exception as e:
             st.warning("Evidence gathering failed: " + str(e))
-            evidence = []
+            # Fall back to fallback results even when evidence gathering errors out
+            if is_fallback and fallback_results:
+                evidence = [
+                    {"source": "Web Search", "title": fb.get("title", ""), "url": fb.get("link", "")}
+                    for fb in fallback_results if fb.get("link")
+                ]
+                st.write("Using " + str(len(evidence)) + " related web results as evidence")
+            else:
+                evidence = []
 
         st.write("\u2714\ufe0f **Running similarity analysis...**")
         try:

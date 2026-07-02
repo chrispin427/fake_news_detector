@@ -51,13 +51,14 @@ def detect_rewrite(claim, evidence_articles):
     )
 
     # --- Risk classification ---
-    if avg_similarity >= 85:
+    # Relaxed thresholds: ≥70 Low Risk, 50-69 Medium Risk, <50 High Risk
+    if avg_similarity >= 70:
         risk = "Low"
         explanation = (
             "The claim closely matches trusted news sources. "
             "Low likelihood of manipulation."
         )
-    elif avg_similarity >= 60:
+    elif avg_similarity >= 50:
         risk = "Medium"
         explanation = (
             "The claim partially matches trusted sources. "

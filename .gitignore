@@ -12,3 +12,4 @@ test_headline_checker.py
 test_rewrite_detector.py
 test_source_comparison.py
 test_write_test.txt
+test_data
