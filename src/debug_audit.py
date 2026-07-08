@@ -36,9 +36,6 @@ from src.source_comparison import compare_sources
 from src.headline_checker import analyze_headline
 from src.rewrite_detector import detect_rewrite
 from src.verdict_engine import generate_verdict
-from src.news_api import verify_news
-
-
 def _normalise_source(src):
     """Handle source being a string, dict, or None."""
     if isinstance(src, dict):
@@ -110,7 +107,7 @@ def audit_article(input_text):
     rewrite_result = detect_rewrite(claim_text, evidence)
     trace["rewrite"] = rewrite_result
 
-    fact_result = fact_check(text_to_analyze)
+    fact_result = fact_check(text_to_analyze, evidence=evidence)
     trace["fact_check"] = {
         "verdict": fact_result.get("verdict", "Unverified"),
         "sources_matched": fact_result.get("sources", 0),
@@ -131,7 +128,11 @@ def audit_article(input_text):
     sentiment_result = analyze_sentiment(text_to_analyze)
     trace["sentiment"] = sentiment_result
 
-    results_dict, _ = verify_news(text_to_analyze)
+    # Build source summary from evidence (no separate API calls)
+    results_dict = {}
+    for item in evidence:
+        s = _normalise_source(item.get("source"))
+        results_dict[s] = results_dict.get(s, 0) + 1
     virality_result = calculate_virality(results_dict)
     trace["virality"] = virality_result
 

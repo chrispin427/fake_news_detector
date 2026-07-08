@@ -303,24 +303,11 @@ if analyze_clicked:
             prediction = result["prediction"]
             probabilities = result["probabilities"]
             confidence = result["confidence"]
-            results_dict = result["api_results"]
-            total_results = result["total_results"]
         except Exception as e:
             st.error("ML analysis failed: " + str(e))
             prediction = 0
             probabilities = [0.5, 0.5]
             confidence = 0.5
-            results_dict = {}
-            total_results = 0
-
-        st.write("\u2714\ufe0f **Running fact check...**")
-        try:
-            fact_result = fact_check(text_to_analyze)
-            claim_text = fact_result["claim"]
-        except Exception as e:
-            st.warning("Fact check failed: " + str(e))
-            fact_result = {"claim": "Could not extract claim", "verdict": "Unverified", "sources": 0, "results": {}, "entities": {"people": [], "organizations": [], "locations": [], "dates": []}}
-            claim_text = ""
 
         st.write("\u2714\ufe0f **Extracting entities...**")
         try:
@@ -332,7 +319,7 @@ if analyze_clicked:
         st.write("\u2714\ufe0f **Gathering supporting evidence...**")
         try:
             # Prioritize article title as search query - produces better matches
-            evidence_query = article_title if article_title and article_title != "User-Submitted Text" and article_title != "Untitled Article" else (claim_text if claim_text else " ".join(text_to_analyze.split()[:10]))
+            evidence_query = article_title if article_title and article_title != "User-Submitted Text" and article_title != "Untitled Article" else " ".join(text_to_analyze.split()[:10])
             evidence = find_evidence(evidence_query)
             # Supplement evidence with fallback search results when direct extraction failed
             if is_fallback and fallback_results:
@@ -360,6 +347,15 @@ if analyze_clicked:
             else:
                 evidence = []
 
+        st.write("\u2714\ufe0f **Running fact check...**")
+        try:
+            fact_result = fact_check(text_to_analyze, evidence=evidence)
+            claim_text = fact_result["claim"]
+        except Exception as e:
+            st.warning("Fact check failed: " + str(e))
+            fact_result = {"claim": "Could not extract claim", "verdict": "Unverified", "sources": 0, "results": {}, "entities": {"people": [], "organizations": [], "locations": [], "dates": []}}
+            claim_text = ""
+
         st.write("\u2714\ufe0f **Running similarity analysis...**")
         try:
             similarity_score = calculate_similarity(claim_text, text_to_analyze) if claim_text else 0
@@ -373,6 +369,24 @@ if analyze_clicked:
         except Exception as e:
             st.warning("Sentiment analysis failed: " + str(e))
             sentiment_result = {"polarity": 0, "sensational_words": [], "manipulation_risk": "Low"}
+
+        st.write("\u2714\ufe0f **Building API-source summary from evidence...**")
+        try:
+            # Build backward-compatible results dict from evidence source counts
+            src_counts = {}
+            for item in evidence:
+                s = item.get("source", "")
+                if isinstance(s, dict):
+                    s = s.get("name", str(s))
+                if s is None:
+                    s = "Unknown"
+                src_counts[str(s)] = src_counts.get(str(s), 0) + 1
+            results_dict = src_counts if src_counts else {}
+            total_results = sum(src_counts.values())
+        except Exception as e:
+            st.warning("Source summary failed: " + str(e))
+            results_dict = {}
+            total_results = 0
 
         st.write("\u2714\ufe0f **Detecting virality signals...**")
         try:

@@ -23,7 +23,6 @@ from src.source_comparison import compare_sources
 from src.headline_checker import analyze_headline
 from src.rewrite_detector import detect_rewrite
 from src.verdict_engine import generate_verdict, TRUSTED_PUBLISHERS
-from src.news_api import verify_news
 from src.preprocess import clean_text
 from difflib import SequenceMatcher
 
@@ -116,23 +115,16 @@ def run(label, input_text):
     kv("Probabilities", f"fake={probs[0]:.4f}, real={probs[1]:.4f}")
     kv("Confidence", f"{confidence:.4f}")
 
-    # --- NEWS API CALL 1 (analyze_article) ---
-    sep("NEWS API CALL 1 (analyze_article)")
-    try:
-        ar = analyze_article(text_to_analyze)
-        results_dict = ar["api_results"]
-        total_results = ar["total_results"]
-        kv("Query", " ".join(text_to_analyze.split()[:10])[:80])
-        for k, v in sorted(results_dict.items()):
-            kv(f"  {k}", f"{v} results")
-        kv("Total", total_results)
-    except Exception as e:
-        kv("Error", str(e))
+    # --- ML PREDICTION (no API calls) ---
+    sep("ML PREDICTION (no API calls)")
+    kv("Prediction", "REAL (1)" if prediction == 1 else "FAKE (0)")
+    kv("Confidence", f"{confidence:.4f}")
+    kv("Status", "ML inference only — API calls handled by evidence_finder exclusively")
 
     # --- FACT CHECK + CLAIM ---
     sep("FACT CHECK & CLAIM EXTRACTION")
     try:
-        fact_result = fact_check(text_to_analyze)
+        fact_result = fact_check(text_to_analyze, evidence=evidence)
         claim_text = fact_result["claim"]
         kv("Extracted Claim", claim_text[:200])
         kv("Verdict", fact_result["verdict"])
