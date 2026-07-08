@@ -14,3 +14,5 @@ test_source_comparison.py
 test_write_test.txt
 test_data
 forensic_results.json
+audit_trace.json
+validation_results.json

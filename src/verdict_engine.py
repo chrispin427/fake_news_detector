@@ -63,27 +63,31 @@ def _score_fact_check(fact_result, matched_sources, total_sources):
 
 
 def _score_timeline(timeline_result):
-    """Score based on timeline. Recent=100%, Not Recent=70%, Old/Unknown=30%."""
+    """Score based on timeline. Recent=100%, Not Recent=70%, Unknown=100% (neutral), Old=30%."""
     status = timeline_result.get("status", "Unknown") if timeline_result else "Unknown"
     if status == "Recent":
         pct = 100
     elif status == "Not Recent":
         pct = 70
+    elif status == "Unknown":
+        pct = 100  # Neutral — no penalty for missing information
     else:
-        pct = 30
+        pct = 30  # Old Article
     weighted = pct * (WEIGHTS["timeline"] / 100.0)
     return round(weighted, 2), pct, status
 
 
 def _score_manipulation(rewrite_result):
-    """Score based on manipulation risk. Low=100%, Medium=50%, High=0%."""
-    risk = rewrite_result.get("risk", "High") if rewrite_result else "High"
+    """Score based on manipulation risk. Low=100%, Medium=50%, High=0%, Unknown=100% (neutral)."""
+    risk = rewrite_result.get("risk", "Unknown") if rewrite_result else "Unknown"
     if risk == "Low":
         pct = 100
     elif risk == "Medium":
         pct = 50
+    elif risk == "Unknown":
+        pct = 100  # Neutral — no evidence to assess manipulation
     else:
-        pct = 0
+        pct = 0  # High risk
     weighted = pct * (WEIGHTS["manipulation"] / 100.0)
     return round(weighted, 2), pct, risk
 
@@ -140,6 +144,7 @@ def _check_fake_conditions(source_info, evidence, rewrite_result, headline_resul
     if manip_risk == "High":
         conditions.append("manipulation_detected")
         reasons.append("Content manipulation detected")
+    # Unknown manipulation risk is NOT counted as a negative condition
     agreement = source_comparison_result.get("agreement", 0) if source_comparison_result else 0
     if agreement < 40:
         conditions.append("low_agreement")
@@ -358,7 +363,7 @@ def generate_verdict(
     if headline_result is None:
         headline_result = {"headline": "", "risk": "Low", "score": 0, "reasons": []}
     if rewrite_result is None:
-        rewrite_result = {"similarity": 0.0, "risk": "Low", "explanation": ""}
+        rewrite_result = {"similarity": 0.0, "risk": "Unknown", "explanation": "No evidence available for comparison"}
     if source_comparison_result is None:
         source_comparison_result = {"agreement": 0, "classification": "Low Agreement", "sources_checked": 0}
 
