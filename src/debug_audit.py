@@ -21,10 +21,10 @@ _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
+from src.evidence_pipeline import build_evidence_query, retrieve_evidence, normalise_source, build_results_dict
 from src.social_media import is_url
 from src.url_extractor import extract_article
 from src.source_rating import get_source_rating
-from src.evidence_finder import find_evidence
 from src.claim_extractor import extract_claim
 from src.fact_checker import fact_check
 from src.similarity_checker import calculate_similarity
@@ -36,13 +36,16 @@ from src.source_comparison import compare_sources
 from src.headline_checker import analyze_headline
 from src.rewrite_detector import detect_rewrite
 from src.verdict_engine import generate_verdict
+
+
 def _normalise_source(src):
-    """Handle source being a string, dict, or None."""
-    if isinstance(src, dict):
-        return src.get("name", str(src))
-    if src is None:
-        return "Unknown"
-    return str(src)
+    """Handle source being a string, dict, or None. Delegates to shared pipeline."""
+    return normalise_source(src)
+
+
+def _extract_api_sources(evidence):
+    """Count evidence items by source. Uses shared pipeline."""
+    return build_results_dict(evidence)
 
 
 def audit_article(input_text):
@@ -50,6 +53,9 @@ def audit_article(input_text):
     Run the full pipeline on input_text (URL or plain text)
     and return a structured dictionary with every intermediate
     signal, score, and decision.
+
+    Uses the shared evidence pipeline (evidence_pipeline.py) to ensure
+    identical evidence retrieval behavior with app/app.py.
     """
     trace = {
         "input": input_text[:500],
@@ -60,6 +66,8 @@ def audit_article(input_text):
     trace["article_title"] = "User-Submitted Text"
     trace["publish_date"] = None
     text_to_analyze = input_text
+    is_fallback = False
+    fallback_results = []
 
     if is_url(input_text):
         article = extract_article(input_text)
@@ -76,6 +84,9 @@ def audit_article(input_text):
             trace["url_extraction"]["title"] = article.get("title", "")
             trace["url_extraction"]["authors"] = article.get("authors", [])
             trace["url_extraction"]["text_length"] = len(text_to_analyze)
+        if article.get("source_type") == "search_fallback":
+            is_fallback = True
+            fallback_results = article.get("fallback_results", [])
         trace["source"] = get_source_rating(input_text)
 
     trace["word_count"] = len(text_to_analyze.split())
@@ -83,19 +94,19 @@ def audit_article(input_text):
     claim_text = extract_claim(text_to_analyze)
     trace["claim"] = {"text": claim_text[:500], "length": len(claim_text)}
 
-    evidence_query = trace["article_title"]
-    if evidence_query in ("User-Submitted Text", "Untitled Article"):
-        evidence_query = claim_text if claim_text else " ".join(text_to_analyze.split()[:10])
-
-    evidence = find_evidence(evidence_query)
+    # Use shared evidence pipeline - identical to app.py
+    evidence_query = build_evidence_query(
+        trace["article_title"], text_to_analyze, claim_text
+    )
+    evidence = retrieve_evidence(evidence_query, fallback_results=fallback_results if is_fallback else None)
     trace["evidence"] = {
         "query": evidence_query[:200],
         "total_found": len(evidence),
         "articles": [
-            {"source": _normalise_source(e.get("source", "?")), "title": e.get("title", "")[:120], "url": e.get("url", "")[:100]}
+            {"source": normalise_source(e.get("source", "?")), "title": e.get("title", "")[:120], "url": e.get("url", "")[:100]}
             for e in evidence[:10]
         ],
-        "api_sources": _extract_api_sources(evidence),
+        "api_sources": build_results_dict(evidence),
     }
 
     sim_claim_article = calculate_similarity(claim_text, text_to_analyze) if claim_text else 0
@@ -128,11 +139,8 @@ def audit_article(input_text):
     sentiment_result = analyze_sentiment(text_to_analyze)
     trace["sentiment"] = sentiment_result
 
-    # Build source summary from evidence (no separate API calls)
-    results_dict = {}
-    for item in evidence:
-        s = _normalise_source(item.get("source"))
-        results_dict[s] = results_dict.get(s, 0) + 1
+    # Build source summary from evidence using shared pipeline (identical to app.py)
+    results_dict = build_results_dict(evidence)
     virality_result = calculate_virality(results_dict)
     trace["virality"] = virality_result
 
@@ -185,20 +193,6 @@ def audit_article(input_text):
     }
 
     return trace
-
-
-def _extract_api_sources(evidence):
-    """Count evidence items by source, handling non-string source values."""
-    from collections import Counter
-    sources = Counter()
-    for item in evidence:
-        src = item.get("source", "")
-        if isinstance(src, dict):
-            src = src.get("name", str(src))
-        if src is None:
-            src = "Unknown"
-        sources[str(src)] += 1
-    return dict(sources.most_common(10))
 
 
 def print_audit(trace):

@@ -11,10 +11,21 @@ logger = logging.getLogger("verdict_engine")
 # Trusted publishers list (highly reputable sources)
 # ------------------------------------------------------------------
 TRUSTED_PUBLISHERS = [
+    # Wire services & major broadcasters (score >= 90)
     "reuters.com", "apnews.com", "ap.org", "bbc.com", "bbc.co.uk",
-    "nbcnews.com", "abcnews.go.com", "cbsnews.com",
+    "npr.org", "theguardian.com", "nytimes.com", "washingtonpost.com",
     "aljazeera.com", "ft.com", "bloomberg.com", "wsj.com",
-    "npr.org", "theguardian.com", "nytimes.com", "washingtonpost.com"
+    "dw.com", "france24.com", "pbs.org", "economist.com",
+    "nbcnews.com", "abcnews.go.com", "cbsnews.com",
+    # High-quality news sources (these will become active when their
+    # dynamic reputation signals or evidence reliability raises their
+    # effective score above the 90 threshold)
+    "latimes.com", "usatoday.com", "chicagotribune.com",
+    "thehill.com", "politico.com", "abc.net.au", "cbc.ca",
+    "euronews.com", "lemonde.fr", "thetimes.co.uk",
+    "telegraph.co.uk", "independent.co.uk", "irishtimes.com",
+    "smh.com.au", "scmp.com", "japantimes.co.jp", "hindu.com",
+    "nation.africa", "africanews.com",
 ]
 
 

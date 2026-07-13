@@ -32,7 +32,6 @@ from src.source_rating import get_source_rating
 from src.fact_checker import fact_check
 from src.social_preview import get_preview
 from src.entity_extractor import extract_entities
-from src.evidence_finder import find_evidence
 from src.similarity_checker import calculate_similarity
 from src.sentiment_analyzer import analyze_sentiment
 from src.virality_detector import calculate_virality
@@ -43,6 +42,7 @@ from src.report_generator import generate_report, generate_report_text, generate
 from src.source_comparison import compare_sources
 from src.headline_checker import analyze_headline
 from src.rewrite_detector import detect_rewrite
+from src.evidence_pipeline import build_evidence_query, retrieve_evidence, build_results_dict
 
 # --------------------------------------------------
 # SOCIAL MEDIA URL DETECTION
@@ -318,21 +318,11 @@ if analyze_clicked:
 
         st.write("\u2714\ufe0f **Gathering supporting evidence...**")
         try:
-            # Prioritize article title as search query - produces better matches
-            evidence_query = article_title if article_title and article_title != "User-Submitted Text" and article_title != "Untitled Article" else " ".join(text_to_analyze.split()[:10])
-            evidence = find_evidence(evidence_query)
-            # Supplement evidence with fallback search results when direct extraction failed
+            # Use shared evidence pipeline for consistent query construction
+            evidence_query = build_evidence_query(article_title, text_to_analyze, None)
+            fallback_for_evidence = fallback_results if is_fallback else None
+            evidence = retrieve_evidence(evidence_query, fallback_results=fallback_for_evidence)
             if is_fallback and fallback_results:
-                existing_urls = {e.get("url") for e in evidence if e.get("url")}
-                for fb in fallback_results:
-                    fb_url = fb.get("link", "")
-                    if fb_url and fb_url not in existing_urls:
-                        evidence.append({
-                            "source": "Web Search",
-                            "title": fb.get("title", ""),
-                            "url": fb_url
-                        })
-                        existing_urls.add(fb_url)
                 st.write("Included " + str(len(fallback_results)) + " related web results as supplementary evidence")
             st.write("Found " + str(len(evidence)) + " evidence items")
         except Exception as e:
@@ -372,17 +362,9 @@ if analyze_clicked:
 
         st.write("\u2714\ufe0f **Building API-source summary from evidence...**")
         try:
-            # Build backward-compatible results dict from evidence source counts
-            src_counts = {}
-            for item in evidence:
-                s = item.get("source", "")
-                if isinstance(s, dict):
-                    s = s.get("name", str(s))
-                if s is None:
-                    s = "Unknown"
-                src_counts[str(s)] = src_counts.get(str(s), 0) + 1
-            results_dict = src_counts if src_counts else {}
-            total_results = sum(src_counts.values())
+            # Use shared evidence pipeline for consistent source counting
+            results_dict = build_results_dict(evidence)
+            total_results = sum(results_dict.values())
         except Exception as e:
             st.warning("Source summary failed: " + str(e))
             results_dict = {}
