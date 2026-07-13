@@ -8,7 +8,7 @@ load_dotenv()
 
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 GNEWS_API_KEY = os.getenv("GNEWS_API_KEY")
-NEWSDATA_API_KEY = os.getenv("NEWSDATA_API_KEY")
+NEWS_DATA_API_KEY = os.getenv("NEWS_DATA_API_KEY")
 SERP_API_KEY = os.getenv("SERP_API_KEY")
 
 # Try to import query builder; fail gracefully if not available
@@ -91,12 +91,12 @@ def get_gnews_evidence(query):
 
 
 def get_newsdata_evidence(query):
-    if not NEWSDATA_API_KEY:
+    if not NEWS_DATA_API_KEY:
         print("  [NewsData] API key not found")
         return []
     try:
         url = "https://newsdata.io/api/1/news"
-        params = {"apikey": NEWSDATA_API_KEY, "q": query, "language": "en", "size": 5}
+        params = {"apikey": NEWS_DATA_API_KEY, "q": query, "language": "en", "size": 5}
         response = requests.get(url, params=params, timeout=10)
         data = response.json()
         results = data.get("results", [])

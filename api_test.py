@@ -6,7 +6,7 @@ load_dotenv()
 
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 GNEWS_API_KEY = os.getenv("GNEWS_API_KEY")
-NEWSDATA_API_KEY = os.getenv("NEWSDATA_API_KEY")
+NEWS_DATA_API_KEY = os.getenv("NEWS_DATA_API_KEY")
 SERP_API_KEY = os.getenv("SERP_API_KEY")
 
 TEST_QUERY = "Donald Trump news"
@@ -54,7 +54,7 @@ def test_newsdata():
     print("\n Testing NewsData...")
     url = "https://newsdata.io/api/1/news"
     params = {
-        "apikey": NEWSDATA_API_KEY,
+        "apikey": NEWS_DATA_API_KEY,
         "q": TEST_QUERY
     }
 
