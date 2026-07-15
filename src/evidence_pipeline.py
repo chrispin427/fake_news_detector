@@ -76,3 +76,24 @@ def build_results_dict(evidence):
         s = normalise_source(item.get("source"))
         src_counts[str(s)] = src_counts.get(str(s), 0) + 1
     return src_counts
+
+
+def compute_evidence_quality(evidence):
+    """
+    Evaluate the quality of supporting evidence using the publisher
+    reputation system.  Delegates to src.evidence_quality so every
+    consumer of the shared pipeline gets consistent quality scores.
+
+    Logs detailed debug output via the evidence_quality logger.
+
+    Args:
+        evidence: List of dicts with at least a "source" key.
+
+    Returns:
+        dict with score (0-100), label, source_count, breakdown, unmatched.
+    """
+    from src.evidence_quality import compute_evidence_quality as _compute
+    result = _compute(evidence)
+    logger.info("  [EvidencePipeline] Evidence Quality: %s/100 (%s) across %d unique source(s)",
+                result["score"], result["label"], result["source_count"])
+    return result

@@ -54,6 +54,7 @@ SOURCE_SCORES = {
     "bbc.co.uk": 95,
 
     # ===== VERY TRUSTWORTHY =====
+    "afp.com": 95,
     "npr.org": 94,
     "theguardian.com": 92,
     "nytimes.com": 92,

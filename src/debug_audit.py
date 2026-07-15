@@ -16,12 +16,15 @@ a debugging / forensics tool.
 
 import sys
 import os
+import logging
+
+logger = logging.getLogger("debug_audit")
 
 _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from src.evidence_pipeline import build_evidence_query, retrieve_evidence, normalise_source, build_results_dict
+from src.evidence_pipeline import build_evidence_query, retrieve_evidence, normalise_source, build_results_dict, compute_evidence_quality
 from src.social_media import is_url
 from src.url_extractor import extract_article
 from src.source_rating import get_source_rating
@@ -192,6 +195,20 @@ def audit_article(input_text):
         "is_trusted_source": verdict_result.get("is_trusted_source", False),
     }
 
+    # Compute evidence quality and add to trace
+    evidence_quality_result = compute_evidence_quality(evidence)
+    trace["evidence_quality"] = evidence_quality_result
+
+    # Log the quality alongside other key metrics
+    logger.info("=" * 50)
+    logger.info("  EVIDENCE QUALITY AUDIT")
+    logger.info("=" * 50)
+    logger.info("  Evidence count:   %d", len(evidence))
+    logger.info("  Quality score:    %s/100", evidence_quality_result["score"])
+    logger.info("  Quality label:    %s", evidence_quality_result["label"])
+    logger.info("  Unique sources:   %d", evidence_quality_result["source_count"])
+    logger.info("=" * 50)
+
     return trace
 
 
@@ -228,30 +245,36 @@ def print_audit(trace):
     print(f"\n  4. SIMILARITY SCORES")
     print(f"     Claim vs article: {sim.get('claim_vs_article', 0)}%")
 
+    eq = trace.get("evidence_quality", {})
+    print(f"\n  5. EVIDENCE QUALITY")
+    print(f"     Score:          {eq.get('score', 0)}/100")
+    print(f"     Label:          {eq.get('label', 'N/A')}")
+    print(f"     Unique sources: {eq.get('source_count', 0)}")
+
     ag = trace.get("source_agreement", {})
-    print(f"\n  5. SOURCE AGREEMENT")
+    print(f"\n  6. SOURCE AGREEMENT")
     print(f"     Agreement:      {ag.get('agreement', 0)}%")
     print(f"     Classification: {ag.get('classification', 'N/A')}")
     print(f"     Sources:        {ag.get('sources_checked', 0)}")
 
     rw = trace.get("rewrite", {})
-    print(f"\n  6. REWRITE / MANIPULATION")
+    print(f"\n  7. REWRITE / MANIPULATION")
     print(f"     Similarity:     {rw.get('similarity', 0)}%")
     print(f"     Risk:           {rw.get('risk', 'N/A')}")
     print(f"     Explanation:    {rw.get('explanation', '')[:120]}")
 
     fc = trace.get("fact_check", {})
-    print(f"\n  7. FACT CHECK")
+    print(f"\n  8. FACT CHECK")
     print(f"     Verdict:        {fc.get('verdict', 'N/A')}")
     print(f"     Sources:        {fc.get('sources_matched', 0)}")
 
     tl = trace.get("timeline", {})
-    print(f"\n  8. TIMELINE")
+    print(f"\n  9. TIMELINE")
     print(f"     Status:         {tl.get('status', 'N/A')}")
     print(f"     Years old:      {tl.get('years_old', 'N/A')}")
 
     ml = trace.get("ml", {})
-    print(f"\n  9. ML PREDICTION")
+    print(f"\n  10. ML PREDICTION")
     if "error" in ml:
         print(f"     Error:          {ml['error']}")
     else:
@@ -259,7 +282,7 @@ def print_audit(trace):
         print(f"     Confidence:     {ml.get('confidence', 0)}")
 
     vd = trace.get("verdict", {})
-    print(f"\n  10. FINAL VERDICT")
+    print(f"\n  11. FINAL VERDICT")
     print(f"     Score:          {vd.get('score', 0)}/100")
     print(f"     Verdict:        {vd.get('verdict', 'N/A')}")
     print(f"     Trusted source: {vd.get('is_trusted_source', False)}")

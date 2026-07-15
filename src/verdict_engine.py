@@ -1,4 +1,5 @@
 import logging
+from src.evidence_quality import compute_evidence_quality
 
 # ------------------------------------------------------------------
 # Logging setup for debug output
@@ -34,7 +35,8 @@ TRUSTED_PUBLISHERS = [
 # ------------------------------------------------------------------
 WEIGHTS = {
     "source_reputation": 35,
-    "external_evidence": 25,
+    "external_evidence": 15,
+    "evidence_quality": 10,
     "fact_check": 15,
     "timeline": 10,
     "manipulation": 5,
@@ -56,6 +58,18 @@ def _score_external_evidence(evidence):
     pct = min(num_articles / 10.0, 1.0) * 100
     weighted = pct * (WEIGHTS["external_evidence"] / 100.0)
     return round(weighted, 2), round(pct, 1), num_articles
+
+
+def _score_evidence_quality(evidence):
+    """Score based on the average quality of evidence sources.
+    Uses the evidence_quality module to compute publisher reputation.
+    0-100 score translates directly to 0-100%."""
+    eq = compute_evidence_quality(evidence)
+    score = eq["score"]
+    weighted = score * (WEIGHTS["evidence_quality"] / 100.0)
+    logger.info("  Evidence Quality: score=%s/100, label=%s, unique_sources=%d, weighted=%s",
+                score, eq["label"], eq["source_count"], round(weighted, 2))
+    return round(weighted, 2), score, eq["label"], eq["source_count"]
 
 
 def _score_fact_check(fact_result, matched_sources, total_sources):
@@ -381,6 +395,7 @@ def generate_verdict(
     # Score each signal
     src_score, src_raw = _score_source_reputation(source_info)
     evid_score, evid_pct, evid_count = _score_external_evidence(evidence)
+    evid_qual_score, evid_qual_raw, evid_qual_label, evid_qual_sources = _score_evidence_quality(evidence)
     fc_score, fc_pct, fc_verdict = _score_fact_check(fact_result, matched_sources, total_sources)
     tl_score, tl_pct, tl_status = _score_timeline(timeline_result)
     manip_score, manip_pct, manip_risk = _score_manipulation(rewrite_result)
@@ -388,12 +403,13 @@ def generate_verdict(
     ml_score, ml_pct, ml_prediction, ml_conf = _score_ml_prediction(prediction, confidence)
 
     # Compute final weighted score
-    total = round(src_score + evid_score + fc_score + tl_score + manip_score + hl_score + ml_score, 2)
+    total = round(src_score + evid_score + evid_qual_score + fc_score + tl_score + manip_score + hl_score + ml_score, 2)
 
     # Build score breakdown
     breakdown = {
         "source_reputation": {"weight": WEIGHTS["source_reputation"], "raw": src_raw, "weighted": src_score},
         "external_evidence": {"weight": WEIGHTS["external_evidence"], "raw": evid_pct, "weighted": evid_score, "articles": evid_count},
+        "evidence_quality": {"weight": WEIGHTS["evidence_quality"], "raw": evid_qual_raw, "weighted": evid_qual_score, "label": evid_qual_label, "unique_sources": evid_qual_sources},
         "fact_check": {"weight": WEIGHTS["fact_check"], "raw": fc_pct, "weighted": fc_score, "verdict": fc_verdict},
         "timeline": {"weight": WEIGHTS["timeline"], "raw": tl_pct, "weighted": tl_score, "status": tl_status},
         "manipulation": {"weight": WEIGHTS["manipulation"], "raw": manip_pct, "weighted": manip_score, "risk": manip_risk},
@@ -407,6 +423,7 @@ def generate_verdict(
     logger.info("=" * 50)
     logger.info("Source Score:           %s (raw=%s, weight=%s%%)", src_score, src_raw, WEIGHTS["source_reputation"])
     logger.info("Evidence Score:         %s (raw=%s%%, articles=%s, weight=%s%%)", evid_score, evid_pct, evid_count, WEIGHTS["external_evidence"])
+    logger.info("Evidence Quality:       %s (raw=%s, label=%s, unique_sources=%d, weight=%s%%)", evid_qual_score, evid_qual_raw, evid_qual_label, evid_qual_sources, WEIGHTS["evidence_quality"])
     logger.info("Fact Check Score:       %s (raw=%s%%, verdict=%s, weight=%s%%)", fc_score, fc_pct, fc_verdict, WEIGHTS["fact_check"])
     logger.info("Timeline Score:         %s (raw=%s%%, status=%s, weight=%s%%)", tl_score, tl_pct, tl_status, WEIGHTS["timeline"])
     logger.info("Manipulation Score:     %s (raw=%s%%, risk=%s, weight=%s%%)", manip_score, manip_pct, manip_risk, WEIGHTS["manipulation"])

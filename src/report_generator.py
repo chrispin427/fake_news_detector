@@ -1,6 +1,22 @@
 from datetime import datetime
 from io import BytesIO
 
+
+def _normalise_source(src):
+    """
+    Normalise an evidence source value to a string.
+
+    SerpAPI and other news APIs sometimes return the source as a dict
+    (e.g. {"name": "CNN"}) instead of a plain string. This helper
+    extracts the name in that case, returns "Unknown" for None, and
+    falls back to str() for anything else.
+    """
+    if isinstance(src, dict):
+        return src.get("name", str(src))
+    if src is None:
+        return "Unknown"
+    return str(src)
+
 try:
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -182,8 +198,8 @@ EVIDENCE
 
     for item in report["evidence"]:
         text += (
-            f"\n\u2022 {item['source']} - "
-            f"{item['title']}"
+            f"\n\u2022 {_normalise_source(item.get('source', 'Unknown'))} - "
+            f"{item.get('title', '')}"
         )
 
     return text
@@ -522,9 +538,10 @@ def generate_pdf(report):
     if evidence:
         story.append(Paragraph("Supporting Evidence", section_style))
         for item in evidence[:10]:
+            src = _normalise_source(item.get("source", "Unknown"))
+            title = item.get("title", "")
             story.append(Paragraph(
-                "\u2022 " + item.get("source", "Unknown") + " - "
-                + item.get("title", ""),
+                "\u2022 " + src + " - " + title,
                 ParagraphStyle(
                     "EvidenceItem",
                     parent=styles["Normal"],

@@ -15,8 +15,14 @@ Usage:
 """
 
 import re
+import logging
 
-_STOPWORDS = frozenset({
+logger = logging.getLogger("query_builder")
+
+# -------------------------------------------------------------------
+# Stopwords: built-in set extended with NLTK stopwords if available
+# -------------------------------------------------------------------
+_BUILTIN_STOPWORDS = frozenset({
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "could",
     "should", "may", "might", "shall", "can", "need", "dare", "ought",
@@ -41,6 +47,28 @@ _STOPWORDS = frozenset({
     "one", "two", "first", "last", "next", "previous",
     "also", "even", "still", "already", "yet",
 })
+
+
+def _load_stopwords():
+    """Build the stopword set, supplementing the built-in list with NLTK
+    English stopwords when the NLTK corpus is available."""
+    words = set(_BUILTIN_STOPWORDS)
+    try:
+        import nltk
+        try:
+            nltk.data.find("corpora/stopwords")
+        except LookupError:
+            logger.info("Downloading missing NLTK stopwords corpus...")
+            nltk.download("stopwords", quiet=True)
+        from nltk.corpus import stopwords
+        words.update(stopwords.words("english"))
+        logger.debug("Extended stopwords with NLTK corpus (%d total)", len(words))
+    except Exception:
+        pass  # Fall back to built-in stopwords
+    return frozenset(words)
+
+
+_STOPWORDS = _load_stopwords()
 
 
 def _remove_punctuation(text):
